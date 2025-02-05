@@ -1,0 +1,7 @@
+.clj-kondo
+.idea
+.lsp
+target
+
+.lein-repl-history
+

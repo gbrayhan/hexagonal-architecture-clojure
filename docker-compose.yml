@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:15
+    container_name: hexagonal_clojure_db
+    environment:
+      POSTGRES_USER: usuario
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mi_api_rest_db
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - app-network
+
+  app:
+    build: .
+    container_name: hexagonal_clojure_rest_app
+    environment:
+      DATABASE_URL: "jdbc:postgresql://db:5432/mi_api_rest_db"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+    networks:
+      - app-network
+
+volumes:
+  db-data:
+
+networks:
+  app-network:

@@ -1,0 +1,8 @@
+{:store :database
+ :migration-dir "migrations"
+ :db {:dbtype "postgresql"
+      :host "db"
+      :port 5432
+      :dbname "mi_api_rest_db"
+      :user "usuario"
+      :password "password"}}
