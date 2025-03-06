@@ -2,9 +2,15 @@
   (:require [clojure-ddd-hexagonal.domain.user :as d-user]
             [clojure.walk :refer [keywordize-keys]]))
 
+(defn lower-case-keys [m]
+  (into {} (for [[k v] m]
+             [(-> k name .toLowerCase keyword) v])))
+
 (defn db->domain [db-record]
   (let [record (if (map? db-record)
-                 (keywordize-keys db-record)
+                 (-> db-record
+                     keywordize-keys
+                     lower-case-keys)
                  db-record)]
     (-> record
         (assoc :created-at (:created_at record))

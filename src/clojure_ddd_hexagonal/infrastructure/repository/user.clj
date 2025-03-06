@@ -16,11 +16,13 @@
 (extend-type nil
   d-user/IUserService
   (get-all [_]
-    (->> (sql/query (get-datasource)
-                    ["SELECT * FROM users"]
-                    {:row-fn keywordize-keys})
-         (map repository-adapter/db->domain)
-         (vec)))
+    (let [rows (sql/query (get-datasource)
+                          ["SELECT * FROM users"]
+                          {:row-fn keywordize-keys})]
+      (println "Raw rows:" rows) ;; Debug: imprime los registros tal como vienen de la consulta
+      (->> rows
+           (map repository-adapter/db->domain)
+           (vec))))
   (get-by-id [_ id]
     (some-> (sql/get-by-id (get-datasource) :users id)
             keywordize-keys

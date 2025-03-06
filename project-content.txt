@@ -176,30 +176,14 @@ Contenido:
 ---
 
 
-Archivo: src/clojure_ddd_hexagonal/application/usecase/adapters/user_adapter.clj
-Contenido:
----
-(ns clojure-ddd-hexagonal.application.usecase.adapters.user-adapter
-    (:require [clojure-ddd-hexagonal.infrastructure.rest.controllers.adapters.user-adapter :as controllers-adapter]))
-
-(defn convert-input [user-dto]
-  (controllers-adapter/dto->domain user-dto))
-
-(defn convert-output [domain-user]
-  (controllers-adapter/domain->dto domain-user))
----
-
-
 Archivo: src/clojure_ddd_hexagonal/application/usecase/user.clj
 Contenido:
 ---
 (ns clojure-ddd-hexagonal.application.usecase.user
-  (:require [clojure-ddd-hexagonal.domain.user :as d-user]
-            [clojure-ddd-hexagonal.application.usecase.adapters.user-adapter :as usecase-adapter]))
+  (:require [clojure-ddd-hexagonal.domain.user :as d-user]))
 
-(defn create-user [repository user-dto]
-  (let [user (usecase-adapter/convert-input user-dto)]
-    (d-user/create-user repository user)))
+(defn create-user [repository domain-user]
+  (d-user/create-user repository domain-user))
 
 (defn get-all-users [repository]
   (d-user/get-all repository))
@@ -207,9 +191,8 @@ Contenido:
 (defn get-by-id [repository id]
   (d-user/get-by-id repository id))
 
-(defn update-user [repository id user-dto]
-  (let [user (usecase-adapter/convert-input user-dto)]
-    (d-user/update-user repository id user)))
+(defn update-user [repository id domain-user]
+  (d-user/update-user repository id domain-user))
 
 (defn delete-user [repository id]
   (d-user/delete-user repository id))
@@ -288,13 +271,17 @@ Archivo: src/clojure_ddd_hexagonal/infrastructure/repository/adapters/user_adapt
 Contenido:
 ---
 (ns clojure-ddd-hexagonal.infrastructure.repository.adapters.user-adapter
-  (:require [clojure-ddd-hexagonal.domain.user :as d-user]))
+  (:require [clojure-ddd-hexagonal.domain.user :as d-user]
+            [clojure.walk :refer [keywordize-keys]]))
 
 (defn db->domain [db-record]
-  (-> db-record
-      (assoc :created-at (:created_at db-record))
-      (dissoc :created_at)
-      (d-user/map->User)))
+  (let [record (if (map? db-record)
+                 (keywordize-keys db-record)
+                 db-record)]
+    (-> record
+        (assoc :created-at (:created_at record))
+        (dissoc :created_at)
+        (d-user/map->User))))
 
 (defn domain->db [domain-user]
   {:name  (:name domain-user)
@@ -309,7 +296,8 @@ Contenido:
   (:require [next.jdbc :as jdbc]
             [next.jdbc.sql :as sql]
             [clojure-ddd-hexagonal.domain.user :as d-user]
-            [clojure-ddd-hexagonal.infrastructure.repository.adapters.user-adapter :as repository-adapter]))
+            [clojure-ddd-hexagonal.infrastructure.repository.adapters.user-adapter :as repository-adapter]
+            [clojure.walk :refer [keywordize-keys]]))
 
 (defn get-datasource []
   (jdbc/get-datasource {:dbtype "postgresql"
@@ -322,15 +310,21 @@ Contenido:
 (extend-type nil
   d-user/IUserService
   (get-all [_]
-    (->> (sql/query (get-datasource) ["SELECT * FROM users"])
+    (->> (sql/query (get-datasource)
+                    ["SELECT * FROM users"]
+                    {:row-fn keywordize-keys})
          (map repository-adapter/db->domain)
          (vec)))
   (get-by-id [_ id]
     (some-> (sql/get-by-id (get-datasource) :users id)
+            keywordize-keys
             repository-adapter/db->domain))
   (create-user [_ user]
     (let [db-user (repository-adapter/domain->db user)
-          inserted (sql/insert! (get-datasource) :users db-user)]
+          inserted (sql/insert! (get-datasource)
+                                :users
+                                db-user
+                                {:return-keys true})]
       (repository-adapter/db->domain inserted)))
   (update-user [_ id user]
     (let [db-user (repository-adapter/domain->db user)
@@ -338,6 +332,7 @@ Contenido:
       (if (zero? result)
         (throw (ex-info "User not found" {:id id}))
         (some-> (sql/get-by-id (get-datasource) :users id)
+                keywordize-keys
                 repository-adapter/db->domain))))
   (delete-user [_ id]
     (let [existing (sql/get-by-id (get-datasource) :users id)]
@@ -345,7 +340,7 @@ Contenido:
         (throw (ex-info "User not found" {:id id}))
         (do
           (sql/delete! (get-datasource) :users {:id id})
-          (repository-adapter/db->domain existing))))))
+          (repository-adapter/db->domain (keywordize-keys existing)))))))
 ---
 
 
@@ -353,12 +348,15 @@ Archivo: src/clojure_ddd_hexagonal/infrastructure/rest/controllers/adapters/user
 Contenido:
 ---
 (ns clojure-ddd-hexagonal.infrastructure.rest.controllers.adapters.user-adapter
-  (:require [clojure-ddd-hexagonal.domain.user :as d-user]))
+  (:require [clojure-ddd-hexagonal.domain.user :as d-user]
+            [clojure.walk :refer [keywordize-keys]]))
 
 (defn dto->domain [user-dto]
-  (-> user-dto
-      (assoc :created-at (:created_at user-dto))
+  (-> (keywordize-keys user-dto)
+      ;; Eliminamos la llave :created_at del DTO ya que la entidad de dominio usa :created-at
       (dissoc :created_at)
+      ;; Si se requiere, se puede dejar en nil o conservar otro valor
+      (assoc :created-at nil)
       (d-user/map->User)))
 
 (defn domain->dto [domain-user]
@@ -366,6 +364,7 @@ Contenido:
    :name (:name domain-user)
    :email (:email domain-user)
    :created_at (:created-at domain-user)})
+
 ---
 
 
@@ -373,57 +372,61 @@ Archivo: src/clojure_ddd_hexagonal/infrastructure/rest/controllers/user.clj
 Contenido:
 ---
 (ns clojure-ddd-hexagonal.infrastructure.rest.controllers.user
-   (:require [ring.util.http-response :as response]
-             [clojure-ddd-hexagonal.application.usecase.user :as usecase-user]
-             [clojure-ddd-hexagonal.infrastructure.rest.controllers.adapters.user-adapter :as controllers-adapter]))
+  (:require [ring.util.http-response :as response]
+            [clojure-ddd-hexagonal.application.usecase.user :as usecase-user]
+            [clojure-ddd-hexagonal.infrastructure.rest.controllers.adapters.user-adapter :as controllers-adapter]))
 
- (defn get-all-handler [repository _]
-   (try
-     (let [users (usecase-user/get-all-users repository)
-           users-dto (map controllers-adapter/domain->dto users)]
-       (response/ok users-dto))
-     (catch Exception e
-       (response/internal-server-error {:error (.getMessage e)}))))
+(defn get-all-handler [repository _]
+  (try
+    (let [users (usecase-user/get-all-users repository)
+          users-dto (map controllers-adapter/domain->dto users)]
+      (response/ok users-dto))
+    (catch Exception e
+      (response/internal-server-error {:error (.getMessage e)}))))
 
- (defn create-user-handler [repository request]
-   (try
-     (let [new-user (:body request)
-           created-user (usecase-user/create-user repository new-user)
-           created-user-dto (controllers-adapter/domain->dto created-user)]
-       (response/created "/user" created-user-dto))
-     (catch Exception e
-       (response/internal-server-error {:error (.getMessage e)}))))
+(defn create-user-handler [repository request]
+  (try
+    (let [new-user-dto (:body request)
+          ;; Convertimos el DTO a entidad de dominio
+          new-user-domain (controllers-adapter/dto->domain new-user-dto)
+          created-user (usecase-user/create-user repository new-user-domain)
+          created-user-dto (controllers-adapter/domain->dto created-user)]
+      (response/created "/user" created-user-dto))
+    (catch Exception e
+      (response/internal-server-error {:error (.getMessage e)}))))
 
- (defn get-by-id-handler [repository {params :params}]
-   (try
-     (let [id (Integer/parseInt (get params "id"))
-           user (usecase-user/get-by-id repository id)]
-       (if user
-         (response/ok (controllers-adapter/domain->dto user))
-         (response/not-found {:error "User not found"})))
-     (catch Exception e
-       (response/internal-server-error {:error (.getMessage e)}))))
+(defn get-by-id-handler [repository {params :params}]
+  (try
+    (let [id (Integer/parseInt (get params "id"))
+          user (usecase-user/get-by-id repository id)]
+      (if user
+        (response/ok (controllers-adapter/domain->dto user))
+        (response/not-found {:error "User not found"})))
+    (catch Exception e
+      (response/internal-server-error {:error (.getMessage e)}))))
 
- (defn update-user-handler [repository {params :params body :body}]
-   (try
-     (let [id (Integer/parseInt (get params "id"))
-           updated-user (usecase-user/update-user repository id body)]
-       (if updated-user
-         (response/ok {:message "User updated"
-                       :user (controllers-adapter/domain->dto updated-user)})
-         (response/not-found {:error "User not found"})))
-     (catch Exception e
-       (response/internal-server-error {:error (.getMessage e)}))))
+(defn update-user-handler [repository {params :params body :body}]
+  (try
+    (let [id (Integer/parseInt (get params "id"))
+          ;; Convertimos el DTO a entidad de dominio
+          user-domain (controllers-adapter/dto->domain body)
+          updated-user (usecase-user/update-user repository id user-domain)]
+      (if updated-user
+        (response/ok {:message "User updated"
+                      :user (controllers-adapter/domain->dto updated-user)})
+        (response/not-found {:error "User not found"})))
+    (catch Exception e
+      (response/internal-server-error {:error (.getMessage e)}))))
 
- (defn delete-user-handler [repository {params :params}]
-   (try
-     (let [id (Integer/parseInt (get params "id"))
-           deleted-user (usecase-user/delete-user repository id)]
-       (if deleted-user
-         (response/no-content)
-         (response/not-found {:error "User not found"})))
-     (catch Exception e
-       (response/internal-server-error {:error (.getMessage e)}))))
+(defn delete-user-handler [repository {params :params}]
+  (try
+    (let [id (Integer/parseInt (get params "id"))
+          deleted-user (usecase-user/delete-user repository id)]
+      (if deleted-user
+        (response/no-content)
+        (response/not-found {:error "User not found"})))
+    (catch Exception e
+      (response/internal-server-error {:error (.getMessage e)}))))
 ---
 
 
