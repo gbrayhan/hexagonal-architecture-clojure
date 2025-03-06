@@ -4,9 +4,7 @@
 
 (defn dto->domain [user-dto]
   (-> (keywordize-keys user-dto)
-      ;; Eliminamos la llave :created_at del DTO ya que la entidad de dominio usa :created-at
       (dissoc :created_at)
-      ;; Si se requiere, se puede dejar en nil o conservar otro valor
       (assoc :created-at nil)
       (d-user/map->User)))
 
