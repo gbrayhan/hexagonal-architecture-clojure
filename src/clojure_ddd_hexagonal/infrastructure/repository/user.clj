@@ -1,35 +1,41 @@
 (ns clojure-ddd-hexagonal.infrastructure.repository.user
   (:require [next.jdbc :as jdbc]
             [next.jdbc.sql :as sql]
-            [clojure-ddd-hexagonal.domain.user :as d-user]))
+            [clojure-ddd-hexagonal.domain.user :as d-user]
+            [clojure-ddd-hexagonal.infrastructure.repository.adapters.user-adapter :as repository-adapter]))
 
 (defn get-datasource []
   (jdbc/get-datasource {:dbtype "postgresql"
-                        :host "db"
-                        :port 5432
-                        :dbname "mi_api_rest_db"
-                        :user "usuario"
-                        :password "password"}))
+                         :host "db"
+                         :port 5432
+                         :dbname "mi_api_rest_db"
+                         :user "usuario"
+                         :password "password"}))
 
 (extend-type nil
   d-user/IUserService
   (get-all [_]
-    (sql/query (get-datasource) ["SELECT * FROM users"]))
-
+    (->> (sql/query (get-datasource) ["SELECT * FROM users"])
+         (map repository-adapter/db->domain)
+         (vec)))
   (get-by-id [_ id]
-    (sql/get-by-id (get-datasource) :users id))
-
+    (some-> (sql/get-by-id (get-datasource) :users id)
+            repository-adapter/db->domain))
   (create-user [_ user]
-    (sql/insert! (get-datasource) :users user))
-
+    (let [db-user (repository-adapter/domain->db user)
+          inserted (sql/insert! (get-datasource) :users db-user)]
+      (repository-adapter/db->domain inserted)))
   (update-user [_ id user]
-    (let [result (sql/update! (get-datasource) :users user {:id id})]
-      (if (empty? result)
+    (let [db-user (repository-adapter/domain->db user)
+          result (sql/update! (get-datasource) :users db-user {:id id})]
+      (if (zero? result)
         (throw (ex-info "User not found" {:id id}))
-        result)))
-
+        (some-> (sql/get-by-id (get-datasource) :users id)
+                repository-adapter/db->domain))))
   (delete-user [_ id]
-    (let [result (sql/delete! (get-datasource) :users {:id id})]
-      (if (empty? result)
+    (let [existing (sql/get-by-id (get-datasource) :users id)]
+      (if (nil? existing)
         (throw (ex-info "User not found" {:id id}))
-        result))))
+        (do
+          (sql/delete! (get-datasource) :users {:id id})
+          (repository-adapter/db->domain existing))))))

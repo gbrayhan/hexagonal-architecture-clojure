@@ -1,0 +1,400 @@
+Archivo: Dockerfile
+Contenido:
+---
+FROM clojure:lein-2.9.7 AS build
+
+WORKDIR /app
+
+COPY project.clj /app/
+RUN lein deps
+
+COPY . /app/
+
+RUN lein uberjar && \
+    echo "Contents of /app/target:" && \
+    ls -l /app/target && \
+    if [ ! -f /app/target/clojure-ddd-hexagonal.jar ]; then \
+        echo "Error: The JAR file was not found in /app/target"; \
+        exit 1; \
+    fi
+
+FROM openjdk:17-jdk-slim
+
+RUN apt-get update && \
+    apt-get install -y netcat && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=build /app/target/*.jar /app/clojure-ddd-hexagonal.jar
+COPY --from=build /app/migrations /app/migrations
+COPY --from=build /app/resources/migratus.edn /app/resources/migratus.edn
+
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+EXPOSE 3000
+
+ENTRYPOINT ["./entrypoint.sh"]
+---
+
+
+Archivo: clojure-ddd-hexagonal.iml
+Contenido:
+---
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="CLOJURE_MODULE" version="4">
+  <component name="NewModuleRootManager" inherit-compiler-output="true">
+    <exclude-output />
+    <content url="file://$MODULE_DIR$" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>---
+
+
+Archivo: docker-compose.yml
+Contenido:
+---
+services:
+  db:
+    image: postgres:15
+    container_name: hexagonal_clojure_db
+    environment:
+      POSTGRES_USER: usuario
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mi_api_rest_db
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - app-network
+
+  app:
+    build: .
+    container_name: hexagonal_clojure_rest_app
+    environment:
+      DATABASE_URL: "jdbc:postgresql://db:5432/mi_api_rest_db"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+    networks:
+      - app-network
+
+volumes:
+  db-data:
+
+networks:
+  app-network:
+---
+
+
+Archivo: entrypoint.sh
+Contenido:
+---
+#!/bin/bash
+set -e
+
+echo "Waiting for PostgreSQL to be available..."
+while ! nc -z db 5432; do
+  sleep 0.1
+done
+echo "PostgreSQL is available."
+
+echo "Running migrations..."
+java -jar clojure-ddd-hexagonal.jar migrate
+
+echo "Starting the application..."
+java -jar clojure-ddd-hexagonal.jar
+---
+
+
+Archivo: migrations/20240427120000-create-table-users.down.sql
+Contenido:
+---
+DROP TABLE users;
+---
+
+
+Archivo: migrations/20240427120000-create-table-users.up.sql
+Contenido:
+---
+CREATE TABLE users (
+                          id SERIAL PRIMARY KEY,
+                          name VARCHAR(100) NOT NULL,
+                          email VARCHAR(100) UNIQUE NOT NULL,
+                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+---
+
+
+Archivo: project.clj
+Contenido:
+---
+(defproject clojure-ddd-hexagonal "0.1.0-SNAPSHOT"
+  :description "REST API en Clojure con Arquitectura Hexagonal"
+  :resource-paths ["resources"]
+  :dependencies [[org.clojure/clojure "1.11.1"]
+                 [compojure "1.6.2"]
+                 [ring/ring-defaults "0.3.3"]
+                 [metosin/reitit "0.5.15"]
+                 [org.postgresql/postgresql "42.3.1"]
+                 [seancorfield/next.jdbc "1.2.659"]
+                 [migratus "1.3.6"]
+                 [metosin/ring-http-response "0.9.4"]
+                 [ring/ring-jetty-adapter "1.9.6"]
+                 [org.clojure/tools.cli "1.0.206"]
+                 [cheshire "5.10.0"]
+                 [ring/ring-json "0.5.1"]]
+  :main ^:skip-aot clojure-ddd-hexagonal.core
+  :uberjar-name "clojure-ddd-hexagonal.jar"
+  :profiles {:uberjar {:aot :all}}
+  :aliases {"migrate"  ["run" "-m" "clojure-ddd-hexagonal.core" "migrate"]
+            "rollback" ["run" "-m" "clojure-ddd-hexagonal.core" "rollback"]})
+---
+
+
+Archivo: resources/application.properties
+Contenido:
+---
+server.port=3000
+---
+
+
+Archivo: resources/migratus.edn
+Contenido:
+---
+{:store :database
+ :migration-dir "migrations"
+ :db {:dbtype "postgresql"
+      :host "db"
+      :port 5432
+      :dbname "mi_api_rest_db"
+      :user "usuario"
+      :password "password"}}
+---
+
+
+Archivo: src/clojure_ddd_hexagonal/application/usecase/user.clj
+Contenido:
+---
+(ns clojure-ddd-hexagonal.application.usecase.user
+  (:require [clojure-ddd-hexagonal.domain.user :as d-user]))
+
+(defn create-user [repository user]
+  (d-user/create-user repository user))
+
+(defn get-all-users [repository]
+  (d-user/get-all repository))
+
+(defn get-by-id [repository id]
+  (d-user/get-by-id repository id))
+
+(defn update-user [repository id usuario]
+  (d-user/update-user repository id usuario))
+
+(defn delete-user [repository id]
+  (d-user/delete-user repository id))
+---
+
+
+Archivo: src/clojure_ddd_hexagonal/core.clj
+Contenido:
+---
+(ns clojure-ddd-hexagonal.core
+  (:require [migratus.core :as migratus]
+            [clojure-ddd-hexagonal.infrastructure.rest.routes :refer [raw-routes]]
+            [ring.adapter.jetty :as jetty]
+            [clojure.tools.cli :refer [parse-opts]]
+            [ring.middleware.json :refer [wrap-json-body wrap-json-response]])
+  (:gen-class))
+
+(defn read-config []
+  (clojure.edn/read-string (slurp "resources/migratus.edn")))
+
+(defn run-migrations []
+  (println "Running migrations...")
+  (migratus/migrate (read-config)))
+
+(defn rollback-migrations []
+  (println "Rolling back migrations...")
+  (migratus/rollback (read-config)))
+
+(def app-routes
+  (-> raw-routes
+      (wrap-json-body {:keywords? true})
+      (wrap-json-response)))
+
+(defn start-server []
+  (jetty/run-jetty
+    app-routes
+    {:port 3000 :join? false}))
+
+(defn -main [& args]
+  (let [{:keys [arguments]} (parse-opts args [])]
+    (cond
+      (some #{"migrate"} args)
+      (do
+        (run-migrations)
+        (System/exit 0))
+
+      (some #{"rollback"} args)
+      (do
+        (rollback-migrations)
+        (System/exit 0))
+
+      :else
+      (do
+        (run-migrations)
+        (start-server)))))
+---
+
+
+Archivo: src/clojure_ddd_hexagonal/domain/user.clj
+Contenido:
+---
+(ns clojure-ddd-hexagonal.domain.user)
+
+(defrecord User [id name email created-at])
+
+(defprotocol IUserService
+  (get-all [this])
+  (get-by-id [this id])
+  (create-user [this user])
+  (update-user [this id user])
+  (delete-user [this id]))
+---
+
+
+Archivo: src/clojure_ddd_hexagonal/infrastructure/repository/user.clj
+Contenido:
+---
+(ns clojure-ddd-hexagonal.infrastructure.repository.user
+  (:require [next.jdbc :as jdbc]
+            [next.jdbc.sql :as sql]
+            [clojure-ddd-hexagonal.domain.user :as d-user]))
+
+(defn get-datasource []
+  (jdbc/get-datasource {:dbtype "postgresql"
+                        :host "db"
+                        :port 5432
+                        :dbname "mi_api_rest_db"
+                        :user "usuario"
+                        :password "password"}))
+
+(extend-type nil
+  d-user/IUserService
+  (get-all [_]
+    (sql/query (get-datasource) ["SELECT * FROM users"]))
+
+  (get-by-id [_ id]
+    (sql/get-by-id (get-datasource) :users id))
+
+  (create-user [_ user]
+    (sql/insert! (get-datasource) :users user))
+
+  (update-user [_ id user]
+    (let [result (sql/update! (get-datasource) :users user {:id id})]
+      (if (empty? result)
+        (throw (ex-info "User not found" {:id id}))
+        result)))
+
+  (delete-user [_ id]
+    (let [result (sql/delete! (get-datasource) :users {:id id})]
+      (if (empty? result)
+        (throw (ex-info "User not found" {:id id}))
+        result))))
+---
+
+
+Archivo: src/clojure_ddd_hexagonal/infrastructure/rest/controllers/user.clj
+Contenido:
+---
+(ns clojure-ddd-hexagonal.infrastructure.rest.controllers.user
+  (:require [ring.util.http-response :as response]
+            [clojure-ddd-hexagonal.application.usecase.user :as usecase-user]))
+
+(defn get-all-handler [repository _]
+  (try
+    (response/ok (usecase-user/get-all-users repository))
+    (catch Exception e
+      (response/internal-server-error {:error (.getMessage e)}))))
+
+(defn create-user-handler [repository request]
+  (try
+    (let [new-user (:body request)
+          user-cerated (usecase-user/create-user repository new-user)]
+      (response/created "/users" user-cerated))
+    (catch Exception e
+      (response/internal-server-error {:error (.getMessage e)}))))
+
+(defn get-by-id-handler [repository {params :params}]
+  (try
+    (let [id (Integer/parseInt (get params "id"))
+          user (usecase-user/get-by-id repository id)]
+      (if user
+        (response/ok user)
+        (response/not-found {:error "User not found"})))
+    (catch Exception e
+      (response/internal-server-error {:error (.getMessage e)}))))
+
+(defn update-user-handler [repository {params :params body :body}]
+  (try
+    (let [id (Integer/parseInt (get params "id"))
+          result (usecase-user/update-user repository id body)]
+      (if result
+        (response/ok {:message "User updated"})
+        (response/not-found {:error "User not found"})))
+    (catch Exception e
+      (response/internal-server-error {:error (.getMessage e)}))))
+
+(defn delete-user-handler [repository {params :params}]
+  (try
+    (let [id (Integer/parseInt (get params "id"))
+          result (usecase-user/delete-user repository id)]
+      (if result
+        (response/no-content)
+        (response/not-found {:error "User not found"})))
+    (catch Exception e
+      (response/internal-server-error {:error (.getMessage e)}))))
+---
+
+
+Archivo: src/clojure_ddd_hexagonal/infrastructure/rest/routes.clj
+Contenido:
+---
+(ns clojure-ddd-hexagonal.infrastructure.rest.routes
+  (:require [reitit.ring :as ring]
+            [clojure-ddd-hexagonal.infrastructure.rest.controllers.user :as controller]
+            [clojure-ddd-hexagonal.infrastructure.repository.user]))
+
+(def repository-user nil)
+
+(def raw-routes
+  (ring/ring-handler
+    (ring/router
+      [["/user"
+        {:get  (partial controller/get-all-handler repository-user)
+         :post (partial controller/create-user-handler repository-user)}]
+       ["/user/:id"
+        {:get    (partial controller/get-by-id-handler repository-user)
+         :put    (partial controller/update-user-handler repository-user)
+         :delete (partial controller/delete-user-handler repository-user)}]])
+    (ring/create-default-handler)))
+---
+
+
+Archivo: test/clojure_ddd_hexagonal/core_test.clj
+Contenido:
+---
+(ns clojure-ddd-hexagonal.core-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [clojure-ddd-hexagonal.core :as core]))
+
+(deftest a-test
+  (testing "FIXME, I fail."
+    (is (= 0 (core/foo 1)))))
+---
+
+
