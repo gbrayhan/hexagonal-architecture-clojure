@@ -1,7 +1,7 @@
-(ns clojure-ddd-hexagonal.infrastructure.rest.controllers.user
+(ns infrastructure.rest.controllers.user
   (:require [ring.util.http-response :as response]
-            [clojure-ddd-hexagonal.application.usecase.user :as usecase-user]
-            [clojure-ddd-hexagonal.infrastructure.rest.controllers.adapters.user-adapter :as controllers-adapter]))
+            [application.usecase.user :as usecase-user]
+            [infrastructure.rest.controllers.adapters.user-adapter :as controllers-adapter]))
 
 (defn get-all-handler [repository _]
   (try

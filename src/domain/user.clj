@@ -1,4 +1,4 @@
-(ns clojure-ddd-hexagonal.domain.user)
+(ns domain.user)
 
 (defrecord User [id name email created-at])
 

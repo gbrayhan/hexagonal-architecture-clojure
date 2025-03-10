@@ -1,4 +1,4 @@
-(ns clojure-ddd-hexagonal.core-test
+(ns core-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure-ddd-hexagonal.core :as core]))
 

@@ -1,6 +1,6 @@
-(ns clojure-ddd-hexagonal.core
+(ns core
   (:require [migratus.core :as migratus]
-            [clojure-ddd-hexagonal.infrastructure.rest.routes :refer [raw-routes]]
+            [infrastructure.rest.routes :refer [raw-routes]]
             [ring.adapter.jetty :as jetty]
             [clojure.tools.cli :refer [parse-opts]]
             [ring.middleware.json :refer [wrap-json-body wrap-json-response]])

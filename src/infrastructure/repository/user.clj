@@ -1,8 +1,8 @@
-(ns clojure-ddd-hexagonal.infrastructure.repository.user
+(ns infrastructure.repository.user
   (:require [next.jdbc :as jdbc]
             [next.jdbc.sql :as sql]
-            [clojure-ddd-hexagonal.domain.user :as d-user]
-            [clojure-ddd-hexagonal.infrastructure.repository.adapters.user-adapter :as repository-adapter]
+            [domain.user :as d-user]
+            [infrastructure.repository.adapters.user-adapter :as repository-adapter]
             [clojure.walk :refer [keywordize-keys]]))
 
 (defn get-datasource []

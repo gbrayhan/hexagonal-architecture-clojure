@@ -1,5 +1,5 @@
-(ns clojure-ddd-hexagonal.infrastructure.repository.adapters.user-adapter
-  (:require [clojure-ddd-hexagonal.domain.user :as d-user]
+(ns infrastructure.repository.adapters.user-adapter
+  (:require [domain.user :as d-user]
             [clojure.walk :refer [keywordize-keys]]))
 
 (defn lower-case-keys [m]

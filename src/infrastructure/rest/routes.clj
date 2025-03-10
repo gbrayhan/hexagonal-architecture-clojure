@@ -1,7 +1,7 @@
-(ns clojure-ddd-hexagonal.infrastructure.rest.routes
+(ns infrastructure.rest.routes
   (:require [reitit.ring :as ring]
-            [clojure-ddd-hexagonal.infrastructure.rest.controllers.user :as controller]
-            [clojure-ddd-hexagonal.infrastructure.repository.user]))
+            [infrastructure.rest.controllers.user :as controller]
+            [infrastructure.repository.user]))
 
 (def repository-user nil)
 

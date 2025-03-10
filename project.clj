@@ -13,8 +13,8 @@
                  [org.clojure/tools.cli "1.0.206"]
                  [cheshire "5.10.0"]
                  [ring/ring-json "0.5.1"]]
-  :main ^:skip-aot clojure-ddd-hexagonal.core
+  :main ^:skip-aot core
   :uberjar-name "clojure-ddd-hexagonal.jar"
   :profiles {:uberjar {:aot :all}}
-  :aliases {"migrate"  ["run" "-m" "clojure-ddd-hexagonal.core" "migrate"]
-            "rollback" ["run" "-m" "clojure-ddd-hexagonal.core" "rollback"]})
+  :aliases {"migrate"  ["run" "-m" "core" "migrate"]
+            "rollback" ["run" "-m" "core" "rollback"]})

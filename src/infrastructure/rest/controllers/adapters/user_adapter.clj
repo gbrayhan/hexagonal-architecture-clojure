@@ -1,5 +1,5 @@
-(ns clojure-ddd-hexagonal.infrastructure.rest.controllers.adapters.user-adapter
-  (:require [clojure-ddd-hexagonal.domain.user :as d-user]
+(ns infrastructure.rest.controllers.adapters.user-adapter
+  (:require [domain.user :as d-user]
             [clojure.walk :refer [keywordize-keys]]))
 
 (defn dto->domain [user-dto]

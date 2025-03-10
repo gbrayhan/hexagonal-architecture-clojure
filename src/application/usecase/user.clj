@@ -1,5 +1,5 @@
-(ns clojure-ddd-hexagonal.application.usecase.user
-  (:require [clojure-ddd-hexagonal.domain.user :as d-user]))
+(ns application.usecase.user
+  (:require [domain.user :as d-user]))
 
 (defn create-user [repository domain-user]
   (d-user/create-user repository domain-user))
